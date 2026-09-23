@@ -151,44 +151,68 @@ func newApplication(c *config) (*application, error) {
 	}
 
 	for p := range config.Pages {
-		page := &config.Pages[p]
-		page.PrimaryColumnIndex = -1
+		currentPage := &config.Pages[p]
+		currentPage.PrimaryColumnIndex = -1
 
-		if page.Slug == "" {
-			page.Slug = titleToSlug(page.Title)
+		if currentPage.Slug == "" {
+			currentPage.Slug = titleToSlug(currentPage.Title)
 		}
 
-		if slices.Contains(reservedPageSlugs, page.Slug) {
-			return nil, fmt.Errorf("page slug \"%s\" is reserved", page.Slug)
+		if slices.Contains(reservedPageSlugs, currentPage.Slug) {
+			return nil, fmt.Errorf("page slug \"%s\" is reserved", currentPage.Slug)
 		}
 
-		app.slugToPage[page.Slug] = page
+		app.slugToPage[currentPage.Slug] = currentPage
 
-		if page.Width == "default" {
-			page.Width = ""
+		if currentPage.Width == "default" {
+			currentPage.Width = ""
 		}
 
-		if page.DesktopNavigationWidth == "" && page.DesktopNavigationWidth != "default" {
-			page.DesktopNavigationWidth = page.Width
+		if currentPage.DesktopNavigationWidth == "" && currentPage.DesktopNavigationWidth != "default" {
+			currentPage.DesktopNavigationWidth = currentPage.Width
 		}
 
-		for i := range page.HeadWidgets {
-			widget := page.HeadWidgets[i]
+		for i := range currentPage.HeadWidgets {
+			widget := currentPage.HeadWidgets[i]
 			app.widgetByID[widget.GetID()] = widget
 			widget.setProviders(providers)
 		}
 
-		for c := range page.Columns {
-			column := &page.Columns[c]
+		for c := range currentPage.Columns {
+			column := &currentPage.Columns[c]
 
-			if page.PrimaryColumnIndex == -1 && column.Size == "full" {
-				page.PrimaryColumnIndex = int8(c)
+			if currentPage.PrimaryColumnIndex == -1 && column.Size == "full" {
+				currentPage.PrimaryColumnIndex = int8(c)
 			}
 
 			for w := range column.Widgets {
 				widget := column.Widgets[w]
 				app.widgetByID[widget.GetID()] = widget
 				widget.setProviders(providers)
+			}
+		}
+		if len(currentPage.AuthenticatedColumns) > 0 {
+			currentPage.authenticatedPage = &page{
+				Title:                  currentPage.Title,
+				Slug:                   currentPage.Slug,
+				Width:                  currentPage.Width,
+				DesktopNavigationWidth: currentPage.DesktopNavigationWidth,
+				ShowMobileHeader:       currentPage.ShowMobileHeader,
+				HideDesktopNavigation:  currentPage.HideDesktopNavigation,
+				CenterVertically:       currentPage.CenterVertically,
+				HeadWidgets:            currentPage.HeadWidgets,
+				Columns:                currentPage.AuthenticatedColumns,
+				PrimaryColumnIndex:     -1,
+			}
+			for c := range currentPage.authenticatedPage.Columns {
+				column := &currentPage.authenticatedPage.Columns[c]
+				if currentPage.authenticatedPage.PrimaryColumnIndex == -1 && column.Size == "full" {
+					currentPage.authenticatedPage.PrimaryColumnIndex = int8(c)
+				}
+				for _, widget := range column.Widgets {
+					app.widgetByID[widget.GetID()] = widget
+					widget.setProviders(providers)
+				}
 			}
 		}
 	}
@@ -278,13 +302,38 @@ func (a *application) resolveUserDefinedAssetPath(path string) string {
 }
 
 type templateRequestData struct {
-	Theme *themeProperties
+	Theme         *themeProperties
+	Authenticated bool
 }
 
 type templateData struct {
-	App     *application
-	Page    *page
-	Request templateRequestData
+	App             *application
+	Page            *page
+	Request         templateRequestData
+	AccessiblePages []*page
+}
+
+func (a *application) accessiblePages(authenticated bool) []*page {
+	pages := make([]*page, 0, len(a.Config.Pages))
+	for index := range a.Config.Pages {
+		page := &a.Config.Pages[index]
+		if !a.RequiresAuth || authenticated || page.Public {
+			pages = append(pages, page)
+		}
+	}
+	return pages
+}
+
+func (a *application) selectedPage(page *page, authenticated bool) *page {
+	if authenticated && page.authenticatedPage != nil {
+		return page.authenticatedPage
+	}
+	return page
+}
+
+func setPrivateResponseHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Vary", "Cookie")
 }
 
 func (a *application) populateTemplateRequestData(data *templateRequestData, r *http.Request) {
@@ -304,21 +353,26 @@ func (a *application) populateTemplateRequestData(data *templateRequestData, r *
 }
 
 func (a *application) handlePageRequest(w http.ResponseWriter, r *http.Request) {
+	setPrivateResponseHeaders(w)
 	page, exists := a.slugToPage[r.PathValue("page")]
 	if !exists {
 		a.handleNotFound(w, r)
 		return
 	}
 
-	if a.handleUnauthorizedResponse(w, r, redirectToLogin) {
+	authenticated := a.isAuthorized(w, r)
+	if !authenticated && !page.Public {
+		a.respondUnauthorized(w, r, redirectToLogin)
 		return
 	}
 
 	data := templateData{
-		Page: page,
-		App:  a,
+		Page:            a.selectedPage(page, authenticated),
+		App:             a,
+		AccessiblePages: a.accessiblePages(authenticated),
 	}
 	a.populateTemplateRequestData(&data.Request, r)
+	data.Request.Authenticated = a.RequiresAuth && authenticated
 
 	var responseBytes bytes.Buffer
 	err := pageTemplate.Execute(&responseBytes, data)
@@ -332,18 +386,22 @@ func (a *application) handlePageRequest(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *application) handlePageContentRequest(w http.ResponseWriter, r *http.Request) {
+	setPrivateResponseHeaders(w)
 	page, exists := a.slugToPage[r.PathValue("page")]
 	if !exists {
 		a.handleNotFound(w, r)
 		return
 	}
 
-	if a.handleUnauthorizedResponse(w, r, showUnauthorizedJSON) {
+	authenticated := a.isAuthorized(w, r)
+	if !authenticated && !page.Public {
+		a.respondUnauthorized(w, r, showUnauthorizedJSON)
 		return
 	}
+	selectedPage := a.selectedPage(page, authenticated)
 
 	pageData := templateData{
-		Page: page,
+		Page: selectedPage,
 	}
 
 	var err error
@@ -353,7 +411,7 @@ func (a *application) handlePageContentRequest(w http.ResponseWriter, r *http.Re
 		page.mu.Lock()
 		defer page.mu.Unlock()
 
-		page.updateOutdatedWidgets()
+		selectedPage.updateOutdatedWidgets()
 		err = pageContentTemplate.Execute(&responseBytes, pageData)
 	}()
 
