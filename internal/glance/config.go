@@ -75,20 +75,25 @@ type user struct {
 }
 
 type page struct {
-	Title                  string  `yaml:"name"`
-	Slug                   string  `yaml:"slug"`
-	Width                  string  `yaml:"width"`
-	DesktopNavigationWidth string  `yaml:"desktop-navigation-width"`
-	ShowMobileHeader       bool    `yaml:"show-mobile-header"`
-	HideDesktopNavigation  bool    `yaml:"hide-desktop-navigation"`
-	CenterVertically       bool    `yaml:"center-vertically"`
-	HeadWidgets            widgets `yaml:"head-widgets"`
-	Columns                []struct {
-		Size    string  `yaml:"size"`
-		Widgets widgets `yaml:"widgets"`
-	} `yaml:"columns"`
-	PrimaryColumnIndex int8       `yaml:"-"`
-	mu                 sync.Mutex `yaml:"-"`
+	Title                  string       `yaml:"name"`
+	Slug                   string       `yaml:"slug"`
+	Public                 bool         `yaml:"public"`
+	Width                  string       `yaml:"width"`
+	DesktopNavigationWidth string       `yaml:"desktop-navigation-width"`
+	ShowMobileHeader       bool         `yaml:"show-mobile-header"`
+	HideDesktopNavigation  bool         `yaml:"hide-desktop-navigation"`
+	CenterVertically       bool         `yaml:"center-vertically"`
+	HeadWidgets            widgets      `yaml:"head-widgets"`
+	Columns                []pageColumn `yaml:"columns"`
+	AuthenticatedColumns   []pageColumn `yaml:"authenticated-columns"`
+	authenticatedPage      *page        `yaml:"-"`
+	PrimaryColumnIndex     int8         `yaml:"-"`
+	mu                     sync.Mutex   `yaml:"-"`
+}
+
+type pageColumn struct {
+	Size    string  `yaml:"size"`
+	Widgets widgets `yaml:"widgets"`
 }
 
 func newConfigFromYAML(contents []byte) (*config, error) {
@@ -120,6 +125,13 @@ func newConfigFromYAML(contents []byte) (*config, error) {
 			for w := range config.Pages[p].Columns[c].Widgets {
 				if err := config.Pages[p].Columns[c].Widgets[w].initialize(); err != nil {
 					return nil, formatWidgetInitError(err, config.Pages[p].Columns[c].Widgets[w])
+				}
+			}
+		}
+		for c := range config.Pages[p].AuthenticatedColumns {
+			for w := range config.Pages[p].AuthenticatedColumns[c].Widgets {
+				if err := config.Pages[p].AuthenticatedColumns[c].Widgets[w].initialize(); err != nil {
+					return nil, formatWidgetInitError(err, config.Pages[p].AuthenticatedColumns[c].Widgets[w])
 				}
 			}
 		}
@@ -485,6 +497,26 @@ func isConfigStateValid(config *config) error {
 
 	for i := range config.Pages {
 		page := &config.Pages[i]
+		if len(page.AuthenticatedColumns) > 0 {
+			if len(config.Auth.Users) == 0 || !page.Public {
+				return fmt.Errorf("page %d: authenticated-columns requires auth users and public: true", i+1)
+			}
+			if len(page.AuthenticatedColumns) > 3 || (page.Width == "slim" && len(page.AuthenticatedColumns) > 2) {
+				return fmt.Errorf("page %d: authenticated-columns has too many columns", i+1)
+			}
+			full := 0
+			for _, column := range page.AuthenticatedColumns {
+				if column.Size != "small" && column.Size != "full" {
+					return fmt.Errorf("page %d: authenticated-columns size can only be small or full", i+1)
+				}
+				if column.Size == "full" {
+					full++
+				}
+			}
+			if full == 0 || full > 2 {
+				return fmt.Errorf("page %d: authenticated-columns must have 1 or 2 full columns", i+1)
+			}
+		}
 
 		if page.Title == "" {
 			return fmt.Errorf("page %d has no name", i+1)

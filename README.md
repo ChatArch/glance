@@ -16,6 +16,10 @@
 
 ![](docs/images/readme-main-image.png)
 
+## ChatArch maintained fork
+
+This repository is a maintained fork of [glanceapp/glance](https://github.com/glanceapp/glance), not an official upstream release. It adds optional login for explicitly `public: true` pages and server-selected `authenticated-columns` on the same page URL; pages remain protected by default when authentication is configured. See [public pages and optional login](docs/configuration.md#public-pages-and-optional-login) for the security contract. Fork releases use independent `chatarch-vMAJOR.MINOR.PATCH` tags (starting with `chatarch-v0.1.0`) after changes are merged into `main`; inherited upstream `v*` tags are not fork releases. The fork's tag workflow is configured to publish only a Linux amd64 archive and checksum, with no Docker or package-registry publication.
+
 ## Features
 ### Various widgets
 * RSS feeds

@@ -132,6 +132,7 @@ func makeAuthSecretKey(length int) (string, error) {
 }
 
 func (a *application) handleAuthenticationAttempt(w http.ResponseWriter, r *http.Request) {
+	setPrivateResponseHeaders(w)
 	if r.Header.Get("Content-Type") != "application/json" {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -290,22 +291,33 @@ func (a *application) handleUnauthorizedResponse(w http.ResponseWriter, r *http.
 	if a.isAuthorized(w, r) {
 		return false
 	}
+	a.respondUnauthorized(w, r, fallback)
+	return true
+}
 
+func (a *application) respondUnauthorized(w http.ResponseWriter, r *http.Request, fallback doWhenUnauthorized) {
 	switch fallback {
 	case redirectToLogin:
 		http.Redirect(w, r, a.Config.Server.BaseURL+"/login", http.StatusSeeOther)
 	case showUnauthorizedJSON:
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte(`{"error": "Unauthorized"}`))
 	}
-
-	return true
 }
 
 // Maybe this should be a POST request instead?
 func (a *application) handleLogoutRequest(w http.ResponseWriter, r *http.Request) {
+	setPrivateResponseHeaders(w)
 	a.setAuthSessionCookie(w, r, "", time.Now().Add(-1*time.Hour))
-	http.Redirect(w, r, a.Config.Server.BaseURL+"/login", http.StatusSeeOther)
+	destination := a.Config.Server.BaseURL + "/login"
+	if pages := a.accessiblePages(false); len(pages) > 0 {
+		destination = a.Config.Server.BaseURL + "/" + pages[0].Slug
+		if pages[0] == &a.Config.Pages[0] {
+			destination = a.Config.Server.BaseURL + "/"
+		}
+	}
+	http.Redirect(w, r, destination, http.StatusSeeOther)
 }
 
 func (a *application) setAuthSessionCookie(w http.ResponseWriter, r *http.Request, token string, expires time.Time) {
@@ -321,6 +333,7 @@ func (a *application) setAuthSessionCookie(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *application) handleLoginPageRequest(w http.ResponseWriter, r *http.Request) {
+	setPrivateResponseHeaders(w)
 	if a.isAuthorized(w, r) {
 		http.Redirect(w, r, a.Config.Server.BaseURL+"/", http.StatusSeeOther)
 		return

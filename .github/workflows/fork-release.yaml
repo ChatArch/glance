@@ -1,0 +1,117 @@
+name: ChatArch release
+
+on:
+  push:
+    tags:
+      - 'chatarch-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chatarch-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-and-build:
+    if: github.repository == 'ChatArch/glance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: 1GiB
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify tag and main ancestry
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^chatarch-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'Expected a chatarch-vMAJOR.MINOR.PATCH tag with no leading zeroes' >&2
+            exit 1
+          fi
+          tag_commit="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+          event_commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          test "$tag_commit" = "$event_commit"
+          test "$tag_commit" = "$(git rev-parse HEAD)"
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$tag_commit" refs/remotes/origin/main
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test all Go packages
+        run: go test ./... -count=1
+      - name: Race-test page visibility
+        run: go test -race ./internal/glance -run '^TestPageVisibility' -count=1
+      - name: Vet all Go packages
+        run: go vet ./...
+      - name: Build and package Linux amd64
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          version="${TAG}+${commit}"
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -ldflags "-s -w -X github.com/glanceapp/glance/internal/glance.buildVersion=${version}" \
+            -o dist/glance ./
+          test "$(dist/glance --version)" = "$version"
+          tar -C dist -czf "dist/glance-${TAG}-linux-amd64.tar.gz" glance
+          (cd dist && sha256sum "glance-${TAG}-linux-amd64.tar.gz" > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chatarch-glance-linux-amd64
+          path: |
+            dist/glance-chatarch-v*-linux-amd64.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  publish:
+    if: github.repository == 'ChatArch/glance'
+    needs: verify-and-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recheck published tag and main ancestry
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --force --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+          tag_commit="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+          test "$tag_commit" = "$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          test "$tag_commit" = "$(git rev-parse HEAD)"
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$tag_commit" refs/remotes/origin/main
+      - uses: actions/download-artifact@v4
+        with:
+          name: chatarch-glance-linux-amd64
+          path: dist
+      - name: Verify downloaded checksum
+        run: cd dist && sha256sum -c SHA256SUMS
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist/glance-chatarch-v*-linux-amd64.tar.gz
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+          generate_release_notes: true

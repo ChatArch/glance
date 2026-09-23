@@ -252,6 +252,48 @@ Or with Docker:
 docker run --rm glanceapp/glance secret:make
 ```
 
+### Public pages and optional login
+
+When `auth.users` is configured, **every page is private by default**, including pages from older configurations. Add `public: true` only to pages whose guest-facing content has been reviewed. Guests can open those pages without a login prompt and use the Login link in desktop or mobile navigation. After signing in with the existing account, all pages appear; logging out returns to a public page (or the login page if none are public). Put a public page first to make `/` a guest-accessible home.
+
+For a single URL with different public and signed-in content, use `authenticated-columns` on a public page. Its widgets **replace** `columns` only when Glance verifies a session cookie; the guest-facing `columns` remain the only content served to guests. This is not a filter for mixed inventory: create a separate, reviewed public allowlist as the guest widget's input, and supply the full inventory only to authenticated widgets. Shared `head-widgets`, document head, branding and paths in `assets-path` must be safe for guests; assets are served independently of page authentication.
+
+```yaml
+auth:
+  secret-key: # existing generated secret key
+  users:
+    admin:
+      password-hash: # existing password hash
+pages:
+  - name: Home
+    public: true
+    columns:
+      - size: full
+        widgets:
+          - type: html
+            source: Public home
+  - name: Projects
+    public: true
+    columns:
+      - size: full
+        widgets:
+          - type: html
+            source: Public projects only
+    authenticated-columns:
+      - size: full
+        widgets:
+          - type: html
+            source: Complete project inventory
+  - name: Servers
+    columns:
+      - size: full
+        widgets:
+          - type: html
+            source: Private servers
+```
+
+Guest requests for private page URLs redirect to Login; the corresponding `/api/pages/<slug>/content/` requests receive 401. Pages and content API responses use `Cache-Control: private, no-store` and `Vary: Cookie` so a shared cache cannot reuse an authenticated response for a guest. The `authenticated-columns` option requires both `public: true` and configured `auth.users`; invalid combinations fail config validation. It does not create an account or protect unrelated static files in `assets-path`.
+
 ### Using hashed passwords
 
 If you do not want to store plain passwords in your config file or in environment variables, you can hash your password and provide its hash instead:
@@ -564,6 +606,8 @@ pages:
 | center-vertically | boolean | no | false |
 | hide-desktop-navigation | boolean | no | false |
 | show-mobile-header | boolean | no | false |
+| public | boolean | no | false |
+| authenticated-columns | array | no | |
 | head-widgets | array | no | |
 | columns | array | yes | |
 
@@ -601,6 +645,10 @@ Whether to show a header displaying the name of the page on mobile. The header p
 Preview:
 
 ![](images/mobile-header-preview.png)
+
+#### `public` and `authenticated-columns`
+
+When authentication is enabled, `public: true` opts a page into guest access; omitted or `false` remains protected. `authenticated-columns` optionally selects a separate set of widgets for signed-in users on the **same page URL**. Guest-visible `columns` and `head-widgets` must contain only public-safe data. See [Public pages and optional login](#public-pages-and-optional-login) for the complete example and security constraints.
 
 #### `head-widgets`
 

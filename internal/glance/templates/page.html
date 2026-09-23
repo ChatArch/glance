@@ -7,7 +7,7 @@
 {{ end }}
 
 {{ define "navigation-links" }}
-{{ range .App.Config.Pages }}
+{{ range .AccessiblePages }}
 <a href="{{ $.App.Config.Server.BaseURL }}/{{ .Slug }}" class="nav-item{{ if eq .Slug $.Page.Slug }} nav-item-current{{ end }}"{{ if eq .Slug $.Page.Slug }} aria-current="page"{{ end }}><div class="nav-item-text">{{ .Title }}</div></a>
 {{ end }}
 {{ end }}
@@ -43,12 +43,14 @@
                 </div>
             </div>
             {{ end }}
-            {{- if .App.RequiresAuth }}
+            {{- if .Request.Authenticated }}
             <a class="block self-center" href="{{ .App.Config.Server.BaseURL }}/logout" title="Logout">
                 <svg class="logout-button" stroke="var(--color-text-subdue)" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
                 </svg>
             </a>
+            {{- else if .App.RequiresAuth }}
+            <a class="block self-center" href="{{ .App.Config.Server.BaseURL }}/login" title="Login">Login</a>
             {{- end }}
         </div>
     </div>
@@ -92,13 +94,15 @@
             </div>
             {{ end }}
 
-            {{ if .App.RequiresAuth }}
+            {{ if .Request.Authenticated }}
             <a href="{{ .App.Config.Server.BaseURL }}/logout" class="flex justify-between items-center">
                 <div class="size-h3">Logout</div>
                 <svg class="ui-icon" stroke="var(--color-text-subdue)" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
                 </svg>
             </a>
+            {{ else if .App.RequiresAuth }}
+            <a href="{{ .App.Config.Server.BaseURL }}/login" class="flex justify-between items-center"><div class="size-h3">Login</div></a>
             {{ end }}
         </div>
     </div>
