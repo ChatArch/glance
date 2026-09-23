@@ -1,0 +1,35 @@
+name: ChatArch CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'ChatArch/glance'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: 1GiB
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test all Go packages
+        run: go test ./... -count=1
+      - name: Race-test page visibility
+        run: go test -race ./internal/glance -run '^TestPageVisibility' -count=1
+      - name: Vet all Go packages
+        run: go vet ./...
+      - name: Build all Go packages
+        run: go build ./...

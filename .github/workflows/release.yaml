@@ -10,6 +10,7 @@ on:
 
 jobs:
   release:
+    if: github.repository == 'glanceapp/glance'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the target Git reference
