@@ -31,6 +31,8 @@ type workflowContract struct {
 			With struct {
 				GoVersionFile      string `yaml:"go-version-file"`
 				PersistCredentials *bool  `yaml:"persist-credentials"`
+				Path               string `yaml:"path"`
+				Files              string `yaml:"files"`
 			} `yaml:"with"`
 		} `yaml:"steps"`
 	} `yaml:"jobs"`
@@ -115,7 +117,8 @@ func TestForkWorkflowContracts(t *testing.T) {
 		"go vet ./...", `version="${TAG}+${commit}"`,
 		"github.com/glanceapp/glance/internal/glance.buildVersion=${version}",
 		`test "$(dist/glance --version)" = "$version"`,
-		"sha256sum", "go build", "GOOS=linux GOARCH=amd64",
+		`sha256sum "$archive" BUILDINFO.txt > SHA256SUMS`, "go build", "GOOS=linux GOARCH=amd64",
+		`source_sha=%s`, `binary_version=%s`, `archive=%s`,
 	} {
 		if !strings.Contains(verificationSteps, condition) {
 			t.Errorf("missing release gate %q", condition)
@@ -139,9 +142,12 @@ func TestForkWorkflowContracts(t *testing.T) {
 		t.Fatal("only the publish job should download and release the verified archive")
 	}
 	for _, condition := range []string{
-		`git fetch --force --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}"`,
+		`git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"`,
 		`git merge-base --is-ancestor "$tag_commit" refs/remotes/origin/main`,
 		"sha256sum -c SHA256SUMS",
+		`grep -Fx "source_sha=${commit}" BUILDINFO.txt`,
+		`grep -Fx "binary_version=${TAG}+${commit}" BUILDINFO.txt`,
+		`grep -Fx "archive=glance-${TAG}-linux-amd64.tar.gz" BUILDINFO.txt`,
 	} {
 		if !strings.Contains(publicationCommands, condition) {
 			t.Errorf("missing publication recheck %q", condition)
@@ -150,6 +156,24 @@ func TestForkWorkflowContracts(t *testing.T) {
 	if strings.Contains(verificationSteps+publicationSteps, "goreleaser") ||
 		strings.Contains(verificationSteps+publicationSteps, "docker/login-action") {
 		t.Fatal("fork release must not publish upstream Docker images")
+	}
+
+	uploadFiles := ""
+	releaseFiles := ""
+	for _, step := range verification.Steps {
+		if step.Uses == "actions/upload-artifact@v4" {
+			uploadFiles = step.With.Path
+		}
+	}
+	for _, step := range publication.Steps {
+		if step.Uses == "softprops/action-gh-release@v2" {
+			releaseFiles = step.With.Files
+		}
+	}
+	for _, asset := range []string{"dist/glance-chatarch-v*-linux-amd64.tar.gz", "dist/BUILDINFO.txt", "dist/SHA256SUMS"} {
+		if !strings.Contains(uploadFiles, asset) || !strings.Contains(releaseFiles, asset) {
+			t.Errorf("missing uploaded/published asset %s", asset)
+		}
 	}
 
 	upstream := loadWorkflowContract(t, "release.yaml")

@@ -65,13 +65,17 @@ jobs:
             -ldflags "-s -w -X github.com/glanceapp/glance/internal/glance.buildVersion=${version}" \
             -o dist/glance ./
           test "$(dist/glance --version)" = "$version"
-          tar -C dist -czf "dist/glance-${TAG}-linux-amd64.tar.gz" glance
-          (cd dist && sha256sum "glance-${TAG}-linux-amd64.tar.gz" > SHA256SUMS)
+          archive="glance-${TAG}-linux-amd64.tar.gz"
+          tar -C dist -czf "dist/${archive}" glance
+          printf 'tag=%s\nsource_sha=%s\nbinary_version=%s\narchive=%s\ngoos=linux\ngoarch=amd64\ncgo_enabled=0\n' \
+            "$TAG" "$commit" "$version" "$archive" > dist/BUILDINFO.txt
+          (cd dist && sha256sum "$archive" BUILDINFO.txt > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: chatarch-glance-linux-amd64
           path: |
             dist/glance-chatarch-v*-linux-amd64.tar.gz
+            dist/BUILDINFO.txt
             dist/SHA256SUMS
           if-no-files-found: error
 
@@ -94,7 +98,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          git fetch --force --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+          git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
           tag_commit="$(git rev-parse "refs/tags/${TAG}^{commit}")"
           test "$tag_commit" = "$(git rev-parse "${GITHUB_SHA}^{commit}")"
           test "$tag_commit" = "$(git rev-parse HEAD)"
@@ -105,13 +109,25 @@ jobs:
           name: chatarch-glance-linux-amd64
           path: dist
       - name: Verify downloaded checksum
-        run: cd dist && sha256sum -c SHA256SUMS
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -c SHA256SUMS
+          commit="$(git rev-parse HEAD)"
+          grep -Fx "tag=${TAG}" BUILDINFO.txt
+          grep -Fx "source_sha=${commit}" BUILDINFO.txt
+          grep -Fx "binary_version=${TAG}+${commit}" BUILDINFO.txt
+          grep -Fx "archive=glance-${TAG}-linux-amd64.tar.gz" BUILDINFO.txt
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: |
             dist/glance-chatarch-v*-linux-amd64.tar.gz
+            dist/BUILDINFO.txt
             dist/SHA256SUMS
           fail_on_unmatched_files: true
           generate_release_notes: true
