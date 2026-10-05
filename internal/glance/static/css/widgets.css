@@ -74,6 +74,14 @@
     gap: 1rem;
 }
 
+.widget-header-controls {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    border: 0;
+    background: transparent;
+}
+
 .widget-beta-icon {
     width: 1.6rem;
     height: 1.6rem;

@@ -2998,6 +2998,8 @@ How many games are visible before the "SHOW MORE" button appears. Set to `-1` to
 ### iframe
 Embed an iframe as a widget.
 
+An existing widget header may instead include a 28px same-origin iframe beside its title via the optional `header-controls-url` field. Supply a normalized absolute path (and optional query), for example `/_controls/pages/?page=projects&view=icon`; external origins, fragments, backslashes, and dot segments are rejected. Widgets without this field render their original header unchanged.
+
 Example:
 
 ```yaml
