@@ -1,8 +1,9 @@
 {{ if not .App.Config.Branding.HideFooter }}
 <footer class="footer flex items-center flex-column">
 {{ if eq "" .App.Config.Branding.CustomFooter }}
+    {{ $version := footerVersion .App.Version }}
     <div>
-        <a class="size-h3" href="https://github.com/glanceapp/glance" target="_blank" rel="noreferrer">Glance</a> {{ if ne "dev" .App.Version }}<a class="visited-indicator" title="Release notes" href="https://github.com/glanceapp/glance/releases/tag/{{ .App.Version }}" target="_blank" rel="noreferrer">{{ .App.Version }}</a>{{ else }}({{ .App.Version }}){{ end }}
+        <a class="size-h3" href="https://github.com/glanceapp/glance" target="_blank" rel="noreferrer">Glance</a> {{ if $version.ReleaseURL }}<a class="visited-indicator" title="Release notes" href="{{ $version.ReleaseURL }}" target="_blank" rel="noreferrer">{{ $version.Label }}</a>{{ if $version.CommitURL }}+<a class="visited-indicator" title="Source commit" href="{{ $version.CommitURL }}" target="_blank" rel="noreferrer">{{ $version.CommitLabel }}</a>{{ end }}{{ else }}({{ $version.Label }}){{ end }}
     </div>
 {{ else }}
     {{ .App.Config.Branding.CustomFooter }}
