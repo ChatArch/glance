@@ -6,6 +6,9 @@
         {{- else }}
         <h2 class="uppercase">{{ .Title }}</h2>
         {{- end }}
+        {{- if .HeaderControlsURL }}
+        <iframe class="widget-header-controls" title="手动刷新" loading="lazy" src="{{ .HeaderControlsURL }}"></iframe>
+        {{- end }}
         {{- if .IsWIP }}
         <div data-popover-type="html" data-popover-position="above">
             <div data-popover-html>

@@ -9,6 +9,9 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
+	"path"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -147,23 +150,69 @@ const (
 )
 
 type widgetBase struct {
-	ID                  uint64           `yaml:"-"`
-	Providers           *widgetProviders `yaml:"-"`
-	Type                string           `yaml:"type"`
-	Title               string           `yaml:"title"`
-	TitleURL            string           `yaml:"title-url"`
-	HideHeader          bool             `yaml:"hide-header"`
-	CSSClass            string           `yaml:"css-class"`
-	CustomCacheDuration durationField    `yaml:"cache"`
-	ContentAvailable    bool             `yaml:"-"`
-	WIP                 bool             `yaml:"-"`
-	Error               error            `yaml:"-"`
-	Notice              error            `yaml:"-"`
-	templateBuffer      bytes.Buffer     `yaml:"-"`
-	cacheDuration       time.Duration    `yaml:"-"`
-	cacheType           cacheType        `yaml:"-"`
-	nextUpdate          time.Time        `yaml:"-"`
-	updateRetriedTimes  int              `yaml:"-"`
+	ID                  uint64                 `yaml:"-"`
+	Providers           *widgetProviders       `yaml:"-"`
+	Type                string                 `yaml:"type"`
+	Title               string                 `yaml:"title"`
+	TitleURL            string                 `yaml:"title-url"`
+	HeaderControlsURL   headerControlsURLField `yaml:"header-controls-url"`
+	HideHeader          bool                   `yaml:"hide-header"`
+	CSSClass            string                 `yaml:"css-class"`
+	CustomCacheDuration durationField          `yaml:"cache"`
+	ContentAvailable    bool                   `yaml:"-"`
+	WIP                 bool                   `yaml:"-"`
+	Error               error                  `yaml:"-"`
+	Notice              error                  `yaml:"-"`
+	templateBuffer      bytes.Buffer           `yaml:"-"`
+	cacheDuration       time.Duration          `yaml:"-"`
+	cacheType           cacheType              `yaml:"-"`
+	nextUpdate          time.Time              `yaml:"-"`
+	updateRetriedTimes  int                    `yaml:"-"`
+}
+
+type headerControlsURLField string
+
+func (field *headerControlsURLField) UnmarshalYAML(node *yaml.Node) error {
+	var raw string
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	if !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\\r\n#") {
+		return errors.New("header-controls-url must be a same-origin absolute path")
+	}
+	parsed, err := url.ParseRequestURI(raw)
+	cleanPath := ""
+	if err == nil {
+		cleanPath = path.Clean(parsed.Path)
+		if strings.HasSuffix(parsed.Path, "/") && cleanPath != "/" {
+			cleanPath += "/"
+		}
+	}
+	if err != nil || parsed.Scheme != "" || parsed.Host != "" || parsed.User != nil || parsed.Fragment != "" || parsed.Opaque != "" ||
+		parsed.Path == "" || cleanPath != parsed.Path || strings.HasPrefix(parsed.Path, "//") ||
+		strings.ContainsAny(parsed.Path, "\\\r\n%") || strings.Contains(strings.ToLower(parsed.EscapedPath()), "%2e") {
+		return errors.New("header-controls-url must be a normalized same-origin path")
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || parsed.ForceQuery || strings.ContainsAny(parsed.RawQuery, "\\\r\n") {
+		return errors.New("header-controls-url has invalid query")
+	}
+	for key, values := range query {
+		if strings.ContainsAny(key, "\\\r\n") {
+			return errors.New("header-controls-url has invalid query")
+		}
+		for _, value := range values {
+			if strings.ContainsAny(value, "\\\r\n") {
+				return errors.New("header-controls-url has invalid query")
+			}
+		}
+	}
+	result := parsed.EscapedPath()
+	if parsed.RawQuery != "" {
+		result += "?" + query.Encode()
+	}
+	*field = headerControlsURLField(result)
+	return nil
 }
 
 type widgetProviders struct {
