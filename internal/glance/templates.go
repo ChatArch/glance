@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"regexp"
 	"strconv"
 
 	"golang.org/x/text/language"
@@ -12,7 +13,37 @@ import (
 
 var intl = message.NewPrinter(language.English)
 
+var (
+	upstreamFooterVersionPattern   = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	maintainedFooterVersionPattern = regexp.MustCompile(`^(chatarch-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))(\+([0-9a-f]{40}))?$`)
+)
+
+type footerVersion struct {
+	Label       string
+	ReleaseURL  string
+	CommitLabel string
+	CommitURL   string
+}
+
+func parseFooterVersion(version string) footerVersion {
+	result := footerVersion{Label: version}
+
+	if matches := maintainedFooterVersionPattern.FindStringSubmatch(version); matches != nil {
+		result.Label = matches[1]
+		result.ReleaseURL = "https://github.com/ChatArch/glance/releases/tag/" + matches[1]
+		if commit := matches[6]; commit != "" {
+			result.CommitLabel = commit[:7]
+			result.CommitURL = "https://github.com/ChatArch/glance/commit/" + commit
+		}
+	} else if upstreamFooterVersionPattern.MatchString(version) {
+		result.ReleaseURL = "https://github.com/glanceapp/glance/releases/tag/" + version
+	}
+
+	return result
+}
+
 var globalTemplateFunctions = template.FuncMap{
+	"footerVersion":      parseFooterVersion,
 	"formatApproxNumber": formatApproxNumber,
 	"formatNumber":       intl.Sprint,
 	"safeCSS": func(str string) template.CSS {
